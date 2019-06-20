@@ -2,7 +2,11 @@
 #######Variant Annotator Example Prototype####################
 #######Sid Kamalakaran 06/20/2019 #######################
 #############################################################
+#A basic script that takes in a VCF, pulls annotations from Ensembl Variant Effect Predictor and ExAC
+#and outputs a tab delimited text file 
+#############################################################
 
+## We are using the PyVCF module which iterates over VCF and can grab required fields easily w/o rewriting a variant class/method
 from __future__ import print_function
 import json
 import requests
@@ -10,7 +14,7 @@ import sys
 import vcf
 import argparse
 
-
+# A generic request function to get batch queries with RESTful interfaces
 def postFromREST(serverID,headers,data):
 	r = requests.post(serverID, headers=headers, data=data)
 	print(r)
@@ -20,7 +24,7 @@ def postFromREST(serverID,headers,data):
 	decoded = r.json()
 	return(decoded)
 
-	
+# build an array with ExAC formated variants, query REST server; returns a Json dump
 def get_exac(var_array):
 	server="http://exac.hms.harvard.edu"
 	ext="/rest/bulk/variant"
@@ -29,7 +33,7 @@ def get_exac(var_array):
 	decoded=postFromREST(serverID=server+ext,headers=headers,data=datajson)
 	return(decoded)
 
-
+# build an hash with Ensembl formated variants, query VEP REST server; returns a Json dump
 def get_vep(var_array):
 	test=var_array
 	print("vdsfds")
@@ -40,17 +44,15 @@ def get_vep(var_array):
 	ext = "/vep/human/hgvs"
 	decoded=postFromREST(serverID=server+ext,headers=headers,data=datajson)
 	return(decoded)
-
+### Main module to process the VCF and query/format json
 def main():
-	exacVars=[]
-	ensemblVars=[]
-	maxLen=200
+	exacVars=[] # Initialize ExAC formated variant list
+	ensemblVars=[] # Initialize Ensembl formated variant list
+	maxLen=200 # determined max numer of variants in 1 query
 	var_out={}
 	vcf_reader = vcf.Reader(open(vcfFil, 'r'))
 	for record in vcf_reader:
-
-
-		for i in range(len(record.ALT)):
+		for i in range(len(record.ALT)):# if multiple alt alleles are present, we expand the variant list to get individual effects
 			#print(str(i))
 			exacVars.append(str(record.CHROM) + "-" + str(record.POS)+"-"+record.REF+"-"+str(record.ALT[i]))
 			ensemblVars.append(str(record.CHROM) + ":g." + str(record.POS)+record.REF+">"+str(record.ALT[i]))
@@ -58,7 +60,7 @@ def main():
 			var_out[str(record.CHROM) + ":g." + str(record.POS)+record.REF+">"+str(record.ALT[i])][0]=[str(record.CHROM),str(record.POS),str(record.REF),str(record.ALT[i]),str(record.INFO['DP']),str(record.genotype('vaf5')['DPR'][0]),str(record.genotype('vaf5')['DPR'][i+1]),str(record.genotype('vaf5')['DPR'][i+1]/(record.genotype('vaf5')['DPR'][0]+record.genotype('vaf5')['DPR'][i+1]))]
 
 
-
+	#output a few examples for debugging
 	print(exacVars[1:10])
 	print(ensemblVars[1:10])	
 	print(len(exacVars),len(ensemblVars),len(var_out.keys()))
@@ -66,7 +68,7 @@ def main():
 	#ensemblVars=ensemblVars[1:70]
 	for i in range(0, len(ensemblVars),maxLen):
 		ensemblL = ensemblVars[i:i + maxLen]
-		#print(ensemblL)
+		#Grab chunks of 200 variants to requests
 		decoded=get_vep(ensemblL)
 		print("chunk"+str(i)+" retrieved")
 		#decoded=get_vep(ensemblVars[1:2])
@@ -87,7 +89,7 @@ def main():
 
 	for i in range(0, len(exacVars),maxLen):
 		exacL = exacVars[i:i + maxLen]
-		print(exacL)
+		##Grab chunks of 200 variants to requests
 		decoded=get_exac(exacL)
 		print("chunk"+str(i)+" retrieved")
 		for k in decoded:
@@ -98,12 +100,12 @@ def main():
 				#print(varSplit)
 				var_out[str(varSplit[0])+":g."+str(varSplit[1])+str(varSplit[2])+">"+str(varSplit[3])][2]=exacAnnot
 
-	print(len(var_out.keys()))
+	print(len(var_out.keys())) # tallyup total variants counts
 	with open(outFil,'w') as out:
 		out.write("VarID\tChr\tPos\tRef\tAlt\tReadDepthAtLocus\tRefReads\tAltReads\tVarAlleleFreq\tMostDamagingEffect\tTranscriptId(s)\tExAC AF\tExACAlleleCounts\tExACMeanCov\n")
 		ctr=1
 		for vo in var_out.keys():
-			#print(vo,var_out[vo])
+			#print(vo,var_out[vo]); add filler elements when no info is retrieved from servers
 			if var_out[vo][1]==[]:
 				var_out[vo][1]=["None","None"]
 			if var_out[vo][2]==[]:
